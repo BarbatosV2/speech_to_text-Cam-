@@ -4,29 +4,58 @@ import threading
 import time
 import speech_recognition as sr
 import torch.nn as nn
+import torch.nn.functional as F
 
-# Dummy neural network for demonstration
-class SimpleNN(nn.Module):
+# Enhanced neural network
+class EnhancedNN(nn.Module):
     def __init__(self):
-        super(SimpleNN, self).__init__()
-        self.fc = nn.Linear(640 * 480 * 3, 10)  # Assuming input is a flattened image
+        super(EnhancedNN, self).__init__()
+        # Define the convolutional layers
+        self.conv1 = nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1)
+        self.conv2 = nn.Conv2d(32, 64, kernel_size=3, stride=1, padding=1)
+        self.conv3 = nn.Conv2d(64, 128, kernel_size=3, stride=1, padding=1)
+        self.pool = nn.MaxPool2d(kernel_size=2, stride=2, padding=0)
+        self.dropout = nn.Dropout(0.5)
+        self.batch_norm1 = nn.BatchNorm2d(32)
+        self.batch_norm2 = nn.BatchNorm2d(64)
+        self.batch_norm3 = nn.BatchNorm2d(128)
+
+        # Define the fully connected layers
+        self.fc1 = nn.Linear(128 * 8 * 8, 1024)
+        self.fc2 = nn.Linear(1024, 256)
+        self.fc3 = nn.Linear(256, 10)  # Adjust output size as needed
 
     def forward(self, x):
-        x = x.view(-1, 640 * 480 * 3)  # Flatten the image
-        x = self.fc(x)
+        # Convolutional layers with ReLU, max pooling, and batch normalization
+        x = self.pool(F.relu(self.batch_norm1(self.conv1(x))))
+        x = self.pool(F.relu(self.batch_norm2(self.conv2(x))))
+        x = self.pool(F.relu(self.batch_norm3(self.conv3(x))))
+        x = self.dropout(x)
+        
+        # Flatten the image
+        x = x.view(-1, 128 * 8 * 8)
+        
+        # Fully connected layers with ReLU and dropout
+        x = F.relu(self.fc1(x))
+        x = self.dropout(x)
+        x = F.relu(self.fc2(x))
+        x = self.fc3(x)
         return x
 
-# Global variable to store recognized text and timestamp
-recognized_text = ""
+# Global variables to store recognized text and timestamp
+recognized_lines = []
 timestamp = time.time()
 
 def callback(recognizer, audio):
-    global recognized_text, timestamp
+    global recognized_lines, timestamp
     try:
         text = recognizer.recognize_google(audio)
-        recognized_text += " " + text  # Append recognized text
-        timestamp = time.time()  # Update timestamp when new text is recognized
-        print(f"Recognized Text: {recognized_text}")
+        if text:
+            recognized_lines.append(text)  # Append recognized text as a new line
+            if len(recognized_lines) > 2:
+                recognized_lines.pop(0)  # Keep only the last two lines
+            timestamp = time.time()  # Update timestamp when new text is recognized
+            print(f"Recognized Text: {recognized_lines}")
     except sr.UnknownValueError:
         print("Google Web Speech API could not understand audio")
     except sr.RequestError as e:
@@ -48,9 +77,9 @@ def recognize_speech_from_mic():
         stop_listening(wait_for_stop=False)
 
 def show_camera():
-    global recognized_text, timestamp
+    global recognized_lines, timestamp
     cap = cv2.VideoCapture(0)
-    model = SimpleNN()  # Initialize the neural network
+    model = EnhancedNN()  # Initialize the enhanced neural network
     model.eval()  # Set the model to evaluation mode
 
     if not cap.isOpened():
@@ -66,27 +95,28 @@ def show_camera():
             break
 
         # Resize the frame to a smaller size
-        frame = cv2.resize(frame, (640, 480))
+        frame = cv2.resize(frame, (640, 480))  # Resize to 64x64 for the CNN
 
         # Dummy processing with PyTorch model
         # Convert frame to tensor and normalize
         tensor_frame = torch.tensor(frame, dtype=torch.float32) / 255.0
         tensor_frame = tensor_frame.permute(2, 0, 1).unsqueeze(0)  # Convert to NCHW format
 
-        # Perform a dummy forward pass
+        # Perform a forward pass with the enhanced neural network
         with torch.no_grad():
-            output = model(tensor_frame.reshape(1, -1))
+            output = model(tensor_frame)
 
         # Check if 4 seconds have passed since the text was recognized
         if time.time() - timestamp > 4:
-            recognized_text = ""
+            recognized_lines = []
 
         # Display the recognized text at the bottom middle of the frame
         font = cv2.FONT_HERSHEY_SIMPLEX
-        text_size = cv2.getTextSize(recognized_text, font, 1, 2)[0]
-        text_x = (frame.shape[1] - text_size[0]) // 2
-        text_y = frame.shape[0] - 30  # Position the text 30 pixels from the bottom
-        cv2.putText(frame, recognized_text, (text_x, text_y), font, 1, (0, 255, 0), 2, cv2.LINE_AA)
+        for i, line in enumerate(recognized_lines):
+            text_size = cv2.getTextSize(line, font, 1, 2)[0]
+            text_x = (frame.shape[1] - text_size[0]) // 2
+            text_y = frame.shape[0] - 30 - (1 - i) * 30  # Position the text 30 pixels from the bottom, each line 30 pixels apart
+            cv2.putText(frame, line, (text_x, text_y), font, 1, (0, 255, 0), 2, cv2.LINE_AA)
 
         # Show the frame
         cv2.imshow("Camera", frame)
