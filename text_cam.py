@@ -1,7 +1,20 @@
 import cv2
-import speech_recognition as sr
+import torch
 import threading
 import time
+import speech_recognition as sr
+import torch.nn as nn
+
+# Dummy neural network for demonstration
+class SimpleNN(nn.Module):
+    def __init__(self):
+        super(SimpleNN, self).__init__()
+        self.fc = nn.Linear(640 * 480 * 3, 10)  # Assuming input is a flattened image
+
+    def forward(self, x):
+        x = x.view(-1, 640 * 480 * 3)  # Flatten the image
+        x = self.fc(x)
+        return x
 
 # Global variable to store recognized text and timestamp
 recognized_text = ""
@@ -16,12 +29,12 @@ def recognize_speech_from_mic():
         with mic as source:
             recognizer.adjust_for_ambient_noise(source)
             print("Listening...")
-            audio = recognizer.listen(source)
             try:
+                audio = recognizer.listen(source, timeout=None, phrase_time_limit=2)
                 text = recognizer.recognize_google(audio)
-                recognized_text = text
+                recognized_text += " " + text  # Append recognized text
                 timestamp = time.time()  # Update timestamp when new text is recognized
-                print(f"Recognized Text: {text}")
+                print(f"Recognized Text: {recognized_text}")
             except sr.UnknownValueError:
                 print("Google Web Speech API could not understand audio")
             except sr.RequestError as e:
@@ -30,6 +43,8 @@ def recognize_speech_from_mic():
 def show_camera():
     global recognized_text, timestamp
     cap = cv2.VideoCapture(0)
+    model = SimpleNN()  # Initialize the neural network
+    model.eval()  # Set the model to evaluation mode
 
     if not cap.isOpened():
         print("Error: Could not open video device.")
@@ -44,9 +59,18 @@ def show_camera():
             break
 
         # Resize the frame to a smaller size
-        frame = cv2.resize(frame, (1800, 1080 ))
+        frame = cv2.resize(frame, (640, 480))
 
-        # Check if 2 seconds have passed since the text was recognized
+        # Dummy processing with PyTorch model
+        # Convert frame to tensor and normalize
+        tensor_frame = torch.tensor(frame, dtype=torch.float32) / 255.0
+        tensor_frame = tensor_frame.permute(2, 0, 1).unsqueeze(0)  # Convert to NCHW format
+
+        # Perform a dummy forward pass
+        with torch.no_grad():
+            output = model(tensor_frame.reshape(1, -1))
+
+        # Check if 4 seconds have passed since the text was recognized
         if time.time() - timestamp > 4:
             recognized_text = ""
 
