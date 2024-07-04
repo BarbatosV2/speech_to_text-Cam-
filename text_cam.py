@@ -20,25 +20,32 @@ class SimpleNN(nn.Module):
 recognized_text = ""
 timestamp = time.time()
 
-def recognize_speech_from_mic():
+def callback(recognizer, audio):
     global recognized_text, timestamp
+    try:
+        text = recognizer.recognize_google(audio)
+        recognized_text += " " + text  # Append recognized text
+        timestamp = time.time()  # Update timestamp when new text is recognized
+        print(f"Recognized Text: {recognized_text}")
+    except sr.UnknownValueError:
+        print("Google Web Speech API could not understand audio")
+    except sr.RequestError as e:
+        print(f"Could not request results from Google Web Speech API; {e}")
+
+def recognize_speech_from_mic():
     recognizer = sr.Recognizer()
     mic = sr.Microphone()
 
-    while True:
-        with mic as source:
-            recognizer.adjust_for_ambient_noise(source)
-            print("Listening...")
-            try:
-                audio = recognizer.listen(source, timeout=None, phrase_time_limit=2)
-                text = recognizer.recognize_google(audio)
-                recognized_text += " " + text  # Append recognized text
-                timestamp = time.time()  # Update timestamp when new text is recognized
-                print(f"Recognized Text: {recognized_text}")
-            except sr.UnknownValueError:
-                print("Google Web Speech API could not understand audio")
-            except sr.RequestError as e:
-                print(f"Could not request results from Google Web Speech API; {e}")
+    with mic as source:
+        recognizer.adjust_for_ambient_noise(source)
+    
+    stop_listening = recognizer.listen_in_background(mic, callback)
+
+    # Keep the main thread alive
+    try:
+        while True: time.sleep(0.1)
+    except KeyboardInterrupt:
+        stop_listening(wait_for_stop=False)
 
 def show_camera():
     global recognized_text, timestamp
